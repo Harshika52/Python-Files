@@ -29,11 +29,11 @@ def main(event, context):
     config_valueF2:str
     config_valueuser:str
     try:
-        config_value = validcheck()
+        config_value = F1check()
         time.sleep(30)
-        config_valueF2 = validcheckFile2()
+        config_valueF2 = Function5check()
         time.sleep(30)
-        config_valueuser = validcheckuser()
+        config_valueuser = Function2check()
         time.sleep(30)
         print(config_value)
         print(config_valueF2)
@@ -41,63 +41,63 @@ def main(event, context):
         time.sleep(60)
         if config_valueuser== '1' and config_value == '1':
             print("entry loaded")
-            userprocessingload()
+            Function1()
             time.sleep(45)
-            Userfinalinsightload()            
+            Function2()            
             print('UserLoaded')
             time.sleep(45)
             #File1 processing  is loaded 
-            updatecurrentssoidentifier()
-            print('currentssoidentfierupdated')
+            Function3()
+            print('RequiredvalueUpdated')
             time.sleep(45)
             #File1 insight is loaded 
-            removeduplicates()        
+            Function4()        
             print('final table loaded for file1')
             time.sleep(45)
-            #file2load()
+            #Function5()
             #print('final loaded for file2')
-            deleteuserrecords()
+            Function6()
             print('User data is maintained with 5 days historical records')
         else:
             if config_valueuser== '1' and config_value == '0' :
                 print("entry loaded")
-                userprocessingload()
+                Function1()
                 time.sleep(45)
-                Userfinalinsightload()            
+                Function2()            
                 print('UserLoaded')
-                deleteuserrecords()
+                Function6()
                 print('User data is maintained with 5 days historical records')
             else:
                 if config_valueuser== '0' and config_value == '1':
                     print("entry loaded")
                     #File1 processing  is loaded 
-                    updatecurrentssoidentifier()
-                    print('currentssoidentfierupdated')
+                    Function3()
+                    print('RequiredvalueUpdated')
                     time.sleep(45)
                     #File1 insight is loaded 
-                    removeduplicates()       
+                    Function4()       
                     print('final table loaded for file1')
                     time.sleep(45)
-                    #file2load()
+                    #Function5()
                     #print('final loaded for file2')
                 else:
                     print("UDL Error in the daily load so no insightsupdated")   #message relative to file validations
         if config_valueuser== '1' and config_valueF2 == '1':
             print("entry loaded")
-            updatecurrentssoidentifierFile2()
-            print('updatecurrentssoidentifierFile2')
-            removeduplicatesF2()
-            print('removeduplicatesF2 for file2')
-            file2load()
+            Function7()
+            print('Function7')
+            Function8()
+            print('Function8 for file2')
+            Function5()
             print('final loaded for file2')
         else:
             if config_valueuser== '0' and config_valueF2 == '1' :
                 print("entry loaded")
-                updatecurrentssoidentifierFile2()
-                print('updatecurrentssoidentifierFile2')
-                removeduplicatesF2()
-                print('removeduplicatesF2 for file2')
-                file2load()
+                Function7()
+                print('Function7')
+                Function8()
+                print('Function8 for file2')
+                Function5()
                 print('final loaded for file2')
             else:
                 print("UDL Error in the daily load so no insightsupdated")  #message relative to file validations, it is because file2, user both 0 or user is 1
@@ -105,9 +105,9 @@ def main(event, context):
         logging.exception('Exception occurred in error()')  
 
 
-def updatecurrentssoidentifier():
+def Function3():
     try:
-        logging.info("UDL ENtering updatecurrentssoidentifier to bigquery")
+        logging.info("UDL Entering updatecurrentssoidentifier to bigquery")
         client = bigquery.Client(project='projectId')
         project: str = constants.STORAGE_PROJECT_ID         
         rdataset_id: str = constants.STORAGE_DATASET_ID
@@ -137,10 +137,10 @@ def updatecurrentssoidentifier():
         print("UDL Started job {}".format(query_job.job_id))
         logging.info("UDL updatecurrentssoidentifier to bigquery is successfull")
     except Exception as ex:
-        logging.exception('Exception occurred in updatecurrentssoidentifier()')
+        logging.exception('Exception occurred in Function3()')
 
 
-def updatecurrentssoidentifierFile2():
+def Function7():
     try:
         logging.info("UDL ENtering updatecurrentssoidentifier to bigquery")
         client = bigquery.Client(project='projectId')
@@ -171,9 +171,9 @@ def updatecurrentssoidentifierFile2():
         print("UDL Started job {}".format(query_job.job_id))
         logging.info("UDL updatecurrentssoidentifier to bigquery is successfull")
     except Exception as ex:
-        logging.exception('Exception occurred in updatecurrentssoidentifier()')
+        logging.exception('Exception occurred in Function3()')
 
-def removeduplicates():
+def Function4():
     try:
         logging.info("UDL ENtering removeduplicates to bigquery")
         client = bigquery.Client(project='projectId')
@@ -201,9 +201,9 @@ def removeduplicates():
         print("UDL Started job {}".format(query_job.job_id))
         logging.info("UDL removeduplicates to bigquery is successfull")
     except Exception as ex:
-        logging.exception('Exception occurred in removeduplicates()')
+        logging.exception('Exception occurred in Function4()')
 
-def removeduplicatesF2():
+def Function8():
     try:
         logging.info("UDL ENtering removeduplicates to bigquery")
         client = bigquery.Client(project='projectId')
@@ -230,11 +230,11 @@ def removeduplicatesF2():
         print("UDL Started job {}".format(query_job.job_id))
         logging.info("UDL removeduplicates to bigquery is successfull")
     except Exception as ex:
-        logging.exception('Exception occurred in removeduplicates()')
+        logging.exception('Exception occurred in Function4()')
 
 #New Code according to the GenAI requirement for workday#
 
-def file2load():
+def Function5():
     try:
         logging.info("UDL file2load to bigquery")
         client = bigquery.Client(project='projectId')
@@ -341,7 +341,7 @@ LEFT OUTER JOIN (
         logging.exception('Exception occurred in file2derived()')
 
 
-def userprocessingload():
+def Function1():
     try:
         client = bigquery.Client(project='projectId')
         project: str = constants.STORAGE_PROJECT_ID
@@ -358,7 +358,7 @@ def userprocessingload():
         logging.exception('Exception occurred in removing duplicates')
         
         
-def Userfinalinsightload():
+def Function2():
     try:
         client = bigquery.Client(project='projectId')
         project: str = constants.STORAGE_PROJECT_ID
@@ -381,7 +381,7 @@ def Userfinalinsightload():
         logging.exception('Exception occurred in removing duplicates')
 
 
-def validcheck():
+def F1check():
     config_value :str
     try:
         client = bigquery.Client(project='projectId')
@@ -414,7 +414,7 @@ def validcheck():
     return   config_value
 
 
-def validcheckFile2():
+def Function5check():
     config_value :str
     try:
         client = bigquery.Client(project='projectId')
@@ -448,7 +448,7 @@ def validcheckFile2():
 
 
 
-def validcheckuser():
+def Function2check():
     config_valueuser :str
     try:
         client = bigquery.Client(project='projectId')
@@ -474,7 +474,7 @@ def validcheckuser():
     return   config_valueuser 
 
 
-def deleteuserrecords():
+def Function6():
     try:
         client = bigquery.Client(project='projectId')
         project: str = constants.STORAGE_PROJECT_ID
@@ -484,10 +484,9 @@ def deleteuserrecords():
         #indataset_id: str = constants.STORAGE_inDATASET_ID
         #dest_table_id: str = constants.STORAGE_USERMAPPROCESSING_TABLE_ID
         #dest_Table:str = project+'.'+dataset_id+'.'+dest_table_id
-        query = """  DELETE FROM `"""+source_Table+"""` WHERE DataUploadDate IN (
-        SELECT DISTINCT DataUploadDate 
-        FROM `"""+source_Table+"""` 
-        WHERE CAST(DataUploadDate AS DATE) <= DATE_ADD(CURRENT_DATE(), INTERVAL -5 DAY)) """
+        query = """  DELETE FROM `source_Table` WHERE ColumnX IN ( SELECT DISTINCT ColumnX 
+        FROM `source_Table` 
+        WHERE CAST(ColumnX AS DATE) <= DATE_ADD(CURRENT_DATE(), INTERVAL -5 DAY)) """
         query_job = client.query(query)  # Make an API request.
     except Exception as ex:
         logging.exception('Exception occurred in removing duplicates')
