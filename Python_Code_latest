@@ -1,0 +1,493 @@
+import base64
+import json
+import logging
+import requests
+import constants
+import string
+from datetime import datetime,timedelta
+from google.cloud import bigquery
+from io import BytesIO
+from google.cloud import storage
+from google.cloud import kms_v1
+from google.cloud import pubsub
+import fileinput
+import pandas as pd
+import urllib3
+import backoff
+import time
+import google.cloud.logging  #for Logging upgrade to py39
+#added for logging
+gcp_clientlog = google.cloud.logging.Client()
+gcp_clientlog.get_default_handler()
+gcp_clientlog.setup_logging()
+
+urllib3.disable_warnings()
+
+
+def main(event, context):
+    config_value:str
+    config_valueF2:str
+    config_valueuser:str
+    try:
+        config_value = validcheck()
+        time.sleep(30)
+        config_valueF2 = validcheckFile2()
+        time.sleep(30)
+        config_valueuser = validcheckuser()
+        time.sleep(30)
+        print(config_value)
+        print(config_valueF2)
+        print (config_valueuser)
+        time.sleep(60)
+        if config_valueuser== '1' and config_value == '1':
+            print("entry loaded")
+            userprocessingload()
+            time.sleep(45)
+            Userfinalinsightload()            
+            print('UserLoaded')
+            time.sleep(45)
+            #File1 processing  is loaded 
+            updatecurrentssoidentifier()
+            print('currentssoidentfierupdated')
+            time.sleep(45)
+            #File1 insight is loaded 
+            removeduplicates()        
+            print('final table loaded for file1')
+            time.sleep(45)
+            #file2load()
+            #print('final loaded for file2')
+            deleteuserrecords()
+            print('User data is maintained with 5 days historical records')
+        else:
+            if config_valueuser== '1' and config_value == '0' :
+                print("entry loaded")
+                userprocessingload()
+                time.sleep(45)
+                Userfinalinsightload()            
+                print('UserLoaded')
+                deleteuserrecords()
+                print('User data is maintained with 5 days historical records')
+            else:
+                if config_valueuser== '0' and config_value == '1':
+                    print("entry loaded")
+                    #File1 processing  is loaded 
+                    updatecurrentssoidentifier()
+                    print('currentssoidentfierupdated')
+                    time.sleep(45)
+                    #File1 insight is loaded 
+                    removeduplicates()       
+                    print('final table loaded for file1')
+                    time.sleep(45)
+                    #file2load()
+                    #print('final loaded for file2')
+                else:
+                    print("UDL Error in the daily load so no insightsupdated")   #message relative to file validations
+        if config_valueuser== '1' and config_valueF2 == '1':
+            print("entry loaded")
+            updatecurrentssoidentifierFile2()
+            print('updatecurrentssoidentifierFile2')
+            removeduplicatesF2()
+            print('removeduplicatesF2 for file2')
+            file2load()
+            print('final loaded for file2')
+        else:
+            if config_valueuser== '0' and config_valueF2 == '1' :
+                print("entry loaded")
+                updatecurrentssoidentifierFile2()
+                print('updatecurrentssoidentifierFile2')
+                removeduplicatesF2()
+                print('removeduplicatesF2 for file2')
+                file2load()
+                print('final loaded for file2')
+            else:
+                print("UDL Error in the daily load so no insightsupdated")  #message relative to file validations, it is because file2, user both 0 or user is 1
+    except Exception as ex:
+        logging.exception('Exception occurred in error()')  
+
+
+def updatecurrentssoidentifier():
+    try:
+        logging.info("UDL ENtering updatecurrentssoidentifier to bigquery")
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID         
+        rdataset_id: str = constants.STORAGE_DATASET_ID
+        dataset_id: str = constants.STORAGE_inDATASET_ID
+        source_table_id: str = constants.STORAGE_PROCTABLE_ID
+        source_Table:str = project+'.'+rdataset_id+'.'+source_table_id
+        vendor_table_id:str=constants.VENDOR_TABLE_ID
+        vendor_Table:str=project+'.'+dataset_id+'.'+vendor_table_id
+        dest_table_id: str = constants.STORAGE_PROCTABLE_ID
+        dest_Table:str = project+'.'+rdataset_id+'.'+dest_table_id
+        query = """
+        CREATE OR REPLACE TABLE `"""+dest_Table+"""`
+        AS SELECT DISTINCT ColumnA, ColumnB, ColumnC, ColumnD, ColumnE, ColumnF, ColumnG, ColumnH, ColumnI, ColumnJ, ColumnK, ColumnL, ColumnM, ColumnN, ColumnO 
+        FROM ( SELECT DISTINCT auc.Column1 AS ColumnA, auc.Column2 AS ColumnB, IFNULL(vu.ColumnC, NULL) AS ColumnC, auc.Column4 AS ColumnD,
+        auc.Column5 AS ColumnE, auc.Column6 AS ColumnF, auc.Column7 AS ColumnG, auc.Column8 AS ColumnH, auc.Column9 AS ColumnI, auc.Column10 AS ColumnJ,
+        auc.Column11 AS ColumnK, auc.Column12 AS ColumnL, auc.Column13 AS ColumnM, auc.Column14 AS ColumnN, auc.Column15 AS ColumnO FROM  
+        """+source_Table+""" auc
+        LEFT OUTER JOIN 
+        (SELECT DISTINCT Column1 AS ColumnA, Column3 AS ColumnC FROM """+vendor_Table+""" WHERE Column3 IS NOT NULL) vu
+        ON LOWER(auc.Column2) = LOWER(vu.ColumnA)
+        )s
+        """
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        logging.info("UDL updatecurrentssoidentifier to bigquery is successfull")
+    except Exception as ex:
+        logging.exception('Exception occurred in updatecurrentssoidentifier()')
+
+
+def updatecurrentssoidentifierFile2():
+    try:
+        logging.info("UDL ENtering updatecurrentssoidentifier to bigquery")
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID         
+        rdataset_id: str = constants.STORAGE_DATASET_ID
+        dataset_id: str = constants.STORAGE_inDATASET_ID
+        source_table_id: str = constants.STORAGE_TABLE_ID
+        source_Table:str = project+'.'+rdataset_id+'.'+source_table_id
+        vendor_table_id:str=constants.VENDOR_TABLE_ID
+        vendor_Table:str=project+'.'+dataset_id+'.'+vendor_table_id
+        dest_table_id: str = constants.STORAGE_F2PROCTABLE_ID
+        dest_Table:str = project+'.'+rdataset_id+'.'+dest_table_id
+        query = """
+        CREATE OR REPLACE TABLE `"""+dest_Table+"""`
+        ASSELECT DISTINCT ColumnA, ColumnB, ColumnC, ColumnD, ColumnE, ColumnF, ColumnG, ColumnH, ColumnI FROM (
+        SELECT DISTINCT aus.Column1 AS ColumnA, IFNULL(vu.ColumnB, NULL) AS ColumnB, aus.Column3 AS ColumnC, aus.Column4 AS ColumnD, aus.Column5 AS ColumnE, aus.Column6 AS ColumnF, aus.Column7 AS ColumnG, aus.Column8 AS ColumnH, aus.Column9 AS ColumnI
+        FROM 
+        """+source_Table+""" aus
+        LEFT OUTER JOIN 
+        (SELECT DISTINCT Column1 AS ColumnA, Column2 AS ColumnB FROM """+vendor_Table+""" WHERE Column2 IS NOT NULL) vu
+        ON LOWER(aus.Column1) = LOWER(vu.ColumnA)
+        ) WHERE ColumnI = (SELECT MAX(ColumnI) FROM """+source_Table+""")
+        """
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        logging.info("UDL updatecurrentssoidentifier to bigquery is successfull")
+    except Exception as ex:
+        logging.exception('Exception occurred in updatecurrentssoidentifier()')
+
+def removeduplicates():
+    try:
+        logging.info("UDL ENtering removeduplicates to bigquery")
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID                 
+        rdataset_id: str = constants.STORAGE_DATASET_ID 
+        dataset_id: str = constants.STORAGE_inDATASET_ID
+        source_table_id: str = constants.STORAGE_PROCTABLE_ID
+        source_Table:str = project+'.'+rdataset_id+'.'+source_table_id
+        dest_table_id: str = constants.STORAGE_finalTABLE_ID
+        dest_Table:str = project+'.'+dataset_id+'.'+dest_table_id
+        Tc_Table_id:str =constants.STORAGE_TCTABLE_ID
+        tcdest_Table:str = project+'.'+dataset_id+'.'+Tc_Table_id
+        query = """
+        CREATE OR REPLACE TABLE `"""+dest_Table+"""`
+        AS  SELECT DISTINCT Column1 AS ColumnA, Column2 AS ColumnB, Column3 AS ColumnC, Column4 AS ColumnD, tc.Column5 AS ColumnE, Column6 AS ColumnF, Column7 AS ColumnG, Column8 AS ColumnH, Column9 AS ColumnI, Column10 AS ColumnJ, Column11 AS ColumnK
+        FROM """+source_Table+""" S INNER JOIN """+tcdest_Table+""" tc ON S.Column6 = tc.Column6 WHERE ColumnB IN (SELECT ColumnB FROM (SELECT DISTINCT ColumnB, ColumnC, MAX(ColumnH) mc,
+        ROW_NUMBER() OVER(PARTITION BY ColumnC ORDER BY ColumnC, MAX(ColumnH) DESC) rnk FROM """+source_Table+""" 
+        WHERE ColumnJ='Pass'
+        GROUP BY ColumnC, ColumnB) WHERE rnk=1) AND ColumnJ='Pass' AND ColumnI='Complete' AND ColumnC IS NOT NULL
+        """
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        logging.info("UDL removeduplicates to bigquery is successfull")
+    except Exception as ex:
+        logging.exception('Exception occurred in removeduplicates()')
+
+def removeduplicatesF2():
+    try:
+        logging.info("UDL ENtering removeduplicates to bigquery")
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID                 
+        rdataset_id: str = constants.STORAGE_DATASET_ID 
+        dataset_id: str = constants.STORAGE_inDATASET_ID
+        source_table_id: str = constants.STORAGE_F2PROCTABLE_ID
+        source_Table:str = project+'.'+rdataset_id+'.'+source_table_id
+        dest_table_id: str = constants.STORAGE_F2PROCTABLE_ID
+        dest_Table:str = project+'.'+rdataset_id+'.'+dest_table_id
+        query = """
+        CREATE OR REPLACE TABLE `"""+dest_Table+"""`
+        AS  SELECT DISTINCT Column1, Column2, Column3, Column4, Column5, Column6, Column7, Column8, Column9 FROM (
+        SELECT *,
+        ROW_NUMBER() OVER(PARTITION BY Column3 ORDER BY Column3, Column6 DESC) AS rnk
+        FROM
+        """+source_Table+""")
+        WHERE rnk=1 AND Column3 IS NOT NULL
+        """
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        logging.info("UDL removeduplicates to bigquery is successfull")
+    except Exception as ex:
+        logging.exception('Exception occurred in removeduplicates()')
+
+#New Code according to the GenAI requirement for workday#
+
+def file2load():
+    try:
+        logging.info("UDL file2load to bigquery")
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID        
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        indataset_id: str = constants.STORAGE_inDATASET_ID
+        source_qconfig_id: str=constants.STORAGE_QCONFIG_TABLE_ID
+        source_table_id: str = constants.STORAGE_F2PROCTABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id
+        dest_table_id: str = constants.STORAGE_f2TABLE_ID
+        qconfig_table:str = project+'.'+dataset_id+'.'+source_qconfig_id
+        quarter_table_id: str =constants.STORAGE_QUARTER_TABLE_ID
+        Quarter_table: str= project+'.'+dataset_id+'.'+quarter_table_id
+        destination_table:str = project+'.'+indataset_id+'.'+dest_table_id
+        query1 = """CREATE OR REPLACE TABLE `"""+destination_table+"""` as 
+        WITH
+    cte AS (
+        SELECT
+            CAST(DATE_SUB(DATETIME(Column1), INTERVAL (SELECT DISTINCT ColumnX FROM `"""+Quarter_table+"""`) HOUR) AS TIMESTAMP) AS ColumnA,
+            CAST(DATE_ADD(DATETIME(Column2), INTERVAL (SELECT DISTINCT ColumnX FROM `"""+Quarter_table+"""`) HOUR) AS TIMESTAMP) AS ColumnB,
+            Column3
+        FROM (
+            SELECT
+                CASE
+                    WHEN Column3 IN ('Q1', 'H1') AND CAST(SUBSTR(Column4, 0, 2) AS INT) IN (09) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64)-1, '-', Column4))
+                    WHEN Column3 IN ('Q2', 'H1') AND CAST(SUBSTR(Column4, 0, 2) AS INT) IN (12) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64)-1, '-', Column4))
+                    WHEN Column3 IN ('Q3', 'H2') AND CAST(SUBSTR(Column4, 0, 2) AS INT) IN (03) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64), '-', Column4))
+                    WHEN Column3 IN ('Q4', 'H2') AND CAST(SUBSTR(Column4, 0, 2) AS INT) IN (06) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64), '-', Column4))
+                END AS Column1,
+                CASE
+                    WHEN Column3 IN ('Q1', 'H1') AND CAST(SUBSTR(Column5, 0, 2) AS INT) IN (12) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64)-1, '-', Column5))
+                    WHEN Column3 IN ('Q2', 'H1') AND CAST(SUBSTR(Column5, 0, 2) AS INT) IN (03) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64), '-', Column5))
+                    WHEN Column3 IN ('Q3', 'H2') AND CAST(SUBSTR(Column5, 0, 2) AS INT) IN (06) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64), '-', Column5))
+                    WHEN Column3 IN ('Q4', 'H2') AND CAST(SUBSTR(Column5, 0, 2) AS INT) IN (09) THEN DATE(CONCAT(CAST(CONCAT(CAST(FORMAT_DATETIME("%C", DATETIME (CURRENT_TIMESTAMP())) AS STRING), (SELECT SUBSTR(ColumnX, 3) FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) AS INT64), '-', Column5))
+                END AS Column2,
+                Column4 AS Column6,
+                Column5 AS Column7,
+                Column3 AS Column8,
+                Column4 AS Column9
+            FROM `"""+Quarter_table+"""`
+            ORDER BY Column3
+        )
+        WHERE Column3 = (
+            SELECT
+                Column3
+            FROM `"""+qconfig_table+"""`
+            WHERE ColumnY = 'Current Period'
+            AND ColumnZ IS NULL
+        )
+    )
+SELECT DISTINCT upd.ColumnX AS ColumnY,
+                Column6 AS ColumnZ,
+                (Column7) AS ColumnW,
+                (IFNULL(t.ColumnV, 0)) AS ColumnV,
+                (IFNULL(ig.ColumnU, 0)) AS ColumnU,
+                (SELECT ColumnQ FROM `ScoreTable(hardcoded)` WHERE ColumnR = 'Total available Topics') AS ColumnT
+FROM `"""+source_Table+"""` upd
+LEFT OUTER JOIN (
+    SELECT DISTINCT
+        f2.ColumnX,
+        CASE
+            WHEN s.ColumnQ = f1.ColumnX
+            AND f1.Column10 = 'Pass'
+            AND f1.Column9 = 'Complete' THEN 1
+            ELSE 0
+        END AS ColumnV
+    FROM
+        `"""+source_Table+"""` f2
+    JOIN
+        `File1Table(hardcoded)` f1 ON f2.ColumnX = f1.ColumnY
+    LEFT JOIN
+        `ScoreTable(hardcoded)` s ON f1.ColumnX = s.ColumnQ 
+    WHERE s.ColumnR = 'TQ Current Topic Goal'
+) t ON upd.ColumnX = t.ColumnX
+LEFT OUTER JOIN (
+    SELECT t1.ColumnX AS ColumnS,
+        CASE
+            WHEN t2.ColumnO >= (SELECT ColumnP FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Increment Goal' AND Column8 = (SELECT Column8 FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL) AND ColumnA = (SELECT ColumnA FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL) AND ColumnB = (SELECT ColumnB FROM `"""+qconfig_table+"""` WHERE ColumnY = 'Current Period' AND ColumnZ IS NULL)) THEN 1
+        END AS ColumnU
+    FROM (
+        SELECT DISTINCT (ColumnX) AS ColumnS,
+            (Column6) AS ColumnO
+        FROM `"""+source_Table+"""`) AS t1
+        LEFT OUTER JOIN (
+        SELECT DISTINCT ColumnX AS ColumnS,
+            (Column6) AS ColumnO
+        FROM `"""+source_Table+"""` t1
+        WHERE ColumnW >= (
+            SELECT ColumnA FROM cte
+        )
+        AND ColumnW <= (
+            SELECT ColumnB FROM cte
+        )
+    ) AS t2 ON t1.ColumnS = t2.ColumnS
+) ig ON upd.ColumnX = ig.ColumnS;
+        """
+        query_job = client.query(query1)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        logging.info("UDL file2derived to bigquery is successfull")
+    except Exception as ex:
+        logging.exception('Exception occurred in file2derived()')
+
+
+def userprocessingload():
+    try:
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        source_table_id: str = constants.STORAGE_USERMAP_TABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id        
+        #indataset_id: str = constants.STORAGE_inDATASET_ID
+        dest_table_id: str = constants.STORAGE_USERMAPPROCESSING_TABLE_ID
+        dest_Table:str = project+'.'+dataset_id+'.'+dest_table_id
+        query = """CREATE OR REPLACE TABLE `"""+dest_Table+"""`
+        AS SELECT * FROM  `"""+source_Table+"""` WHERE SAFE_CAST(Column1 AS INT64) IS NOT NULL AND Column2 = (SELECT MAX(Column2) FROM `"""+source_Table+"""`)"""
+        query_job = client.query(query)  # Make an API request.
+    except Exception as ex:
+        logging.exception('Exception occurred in removing duplicates')
+        
+        
+def Userfinalinsightload():
+    try:
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        source_table_id: str = constants.STORAGE_USERMAPPROCESSING_TABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id        
+        indataset_id: str = constants.STORAGE_inDATASET_ID
+        dest_table_id: str = constants.VENDOR_TABLE_ID
+        dest_Table:str = project+'.'+indataset_id+'.'+dest_table_id
+        query = """CREATE OR REPLACE TABLE `"""+dest_Table+"""`
+        AS  SELECT DISTINCT Column1, Column2, Column3, Column4 FROM ( SELECT Column1, Column2, Column3, Column4, 
+        ROW_NUMBER() OVER(PARTITION BY Column1 ORDER BY Column1, Column3 DESC, Column5 DESC) AS rn,
+        CASE WHEN Column3 = false THEN 'Not Assigned' ELSE Column4 END AS Column4
+        FROM `"""+source_Table+"""` 
+        WHERE SAFE_CAST(Column2 AS INT64) IS NOT NULL 
+        AND Column6 = (SELECT MAX(Column6) FROM `"""+source_Table+"""`)) 
+        WHERE rn = 1"""
+        query_job = client.query(query)  # Make an API request.
+    except Exception as ex:
+        logging.exception('Exception occurred in removing duplicates')
+
+
+def validcheck():
+    config_value :str
+    try:
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        source_table_id: str = constants.STORAGE_apiTABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id 
+
+        query = """SELECT CASE WHEN SUM(Column1) = 2 THEN '1' ELSE '0' END AS Column1 
+        FROM ( SELECT DISTINCT Column2 AS Column1
+        FROM `"""+source_Table+"""` 
+        WHERE Column3 = 'FILE1' AND Column4 = 'Delta' AND CAST(Column5 AS DATE) = CURRENT_DATE()
+        UNION ALL
+        SELECT DISTINCT CASE WHEN Column6 < 100 THEN 1 ELSE 0 END AS Column1
+        FROM `"""+source_Table+"""` 
+        WHERE Column3 = 'FILE1' AND CAST(Column5 AS DATE) = CURRENT_DATE()
+        ) """
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        print("The query data:")
+        for row in query_job:
+            # Row values can be accessed by field name or index.
+            config_value = row["ConfigValue"]
+        print("configvalue {}".format(config_value))
+    except Exception as ex:
+        logging.exception('Exception occurred in valid  check')
+    return   config_value
+
+
+def validcheckFile2():
+    config_value :str
+    try:
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        source_table_id: str = constants.STORAGE_apiTABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id 
+
+        query = """SELECT CASE WHEN SUM(Column1) = 2 THEN '1' ELSE '0' END AS Column1 FROM (
+        SELECT DISTINCT Column2 AS Column1
+        FROM `"""+source_Table+"""` 
+        WHERE Column3 = 'FILE2' AND Column4 = 'Full' AND CAST(Column5 AS DATE) = CURRENT_DATE()
+        UNION ALL
+        SELECT DISTINCT CASE WHEN Column6 < 100 THEN 1 ELSE 0 END AS Column1
+        FROM `"""+source_Table+"""` 
+        WHERE Column3 = 'FILE2' AND CAST(Column5 AS DATE) = CURRENT_DATE())
+        """
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        print("The query data:")
+        for row in query_job:
+            # Row values can be accessed by field name or index.
+            config_value = row["ConfigValue"]
+        print("configvalue {}".format(config_value))
+    except Exception as ex:
+        logging.exception('Exception occurred in valid  check')
+    return   config_value
+
+
+
+def validcheckuser():
+    config_valueuser :str
+    try:
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        source_table_id: str = constants.STORAGE_apiTABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id 
+
+        query = """ SELECT CAST(Column1 AS STRING) AS Column2 FROM `"""+source_Table+"""`
+        WHERE Column3 = 'USERS' AND CAST(Column4 AS DATE) = CURRENT_DATE()"""
+        query_job = client.query(query)  # Make an API request.
+        result = query_job.result()
+        print(result)
+        print(result.total_rows)
+        print("UDL Started job {}".format(query_job.job_id))
+        print("The query data:")
+        for row in query_job:
+            # Row values can be accessed by field name or index.
+            config_valueuser = row["ConfigValue"]
+        print("configvalue {}".format(config_valueuser))
+    except Exception as ex:
+        logging.exception('Exception occurred in valid  check')
+    return   config_valueuser 
+
+
+def deleteuserrecords():
+    try:
+        client = bigquery.Client(project='projectId')
+        project: str = constants.STORAGE_PROJECT_ID
+        dataset_id: str = constants.STORAGE_DATASET_ID
+        source_table_id: str = constants.STORAGE_USERMAP_TABLE_ID
+        source_Table:str = project+'.'+dataset_id+'.'+source_table_id        
+        #indataset_id: str = constants.STORAGE_inDATASET_ID
+        #dest_table_id: str = constants.STORAGE_USERMAPPROCESSING_TABLE_ID
+        #dest_Table:str = project+'.'+dataset_id+'.'+dest_table_id
+        query = """  DELETE FROM `"""+source_Table+"""` WHERE DataUploadDate IN (
+        SELECT DISTINCT DataUploadDate 
+        FROM `"""+source_Table+"""` 
+        WHERE CAST(DataUploadDate AS DATE) <= DATE_ADD(CURRENT_DATE(), INTERVAL -5 DAY)) """
+        query_job = client.query(query)  # Make an API request.
+    except Exception as ex:
+        logging.exception('Exception occurred in removing duplicates')
